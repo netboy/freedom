@@ -99,37 +99,38 @@ func (pool *ServicePool) allType() (list []reflect.Type) {
 	return
 }
 
-func (pool *ServicePool) objBeginRequest(rt *worker, obj interface{}) {
-	rtValue := reflect.ValueOf(rt)
-	factoryCall := func(factory interface{}) {
-		allFields(factory, func(factoryValue reflect.Value) {
-			factoryKind := factoryValue.Kind()
-			if factoryKind == reflect.Interface && rtValue.Type().AssignableTo(factoryValue.Type()) && factoryValue.CanSet() {
-				//如果是运行时对象
-				factoryValue.Set(rtValue)
+func (pool *ServicePool) factoryCall(rt *worker, rtValue reflect.Value, obj interface{}) {
+	allFields(obj, func(factoryValue reflect.Value) {
+		factoryKind := factoryValue.Kind()
+		if factoryKind == reflect.Interface && rtValue.Type().AssignableTo(factoryValue.Type()) && factoryValue.CanSet() {
+			//如果是运行时对象
+			factoryValue.Set(rtValue)
+			return
+		}
+		if !factoryValue.CanInterface() {
+			return
+		}
+		fvi := factoryValue.Interface()
+		allFields(fvi, func(value reflect.Value) {
+			if !value.CanInterface() {
 				return
 			}
-			if !factoryValue.CanInterface() {
-				return
-			}
-			fvi := factoryValue.Interface()
-			allFields(fvi, func(value reflect.Value) {
-				if !value.CanInterface() {
-					return
-				}
-				infra := value.Interface()
-				br, ok := infra.(BeginRequest)
-				if ok {
-					br.BeginRequest(rt)
-				}
-			})
-			br, ok := fvi.(BeginRequest)
+			infra := value.Interface()
+			br, ok := infra.(BeginRequest)
 			if ok {
 				br.BeginRequest(rt)
 			}
-			return
 		})
-	}
+		br, ok := fvi.(BeginRequest)
+		if ok {
+			br.BeginRequest(rt)
+		}
+		return
+	})
+}
+
+func (pool *ServicePool) objBeginRequest(rt *worker, obj interface{}) {
+	rtValue := reflect.ValueOf(rt)
 	allFields(obj, func(value reflect.Value) {
 		kind := value.Kind()
 		if kind == reflect.Interface && rtValue.Type().AssignableTo(value.Type()) && value.CanSet() {
@@ -143,7 +144,7 @@ func (pool *ServicePool) objBeginRequest(rt *worker, obj interface{}) {
 		vi := value.Interface()
 		//如果成员变量是工厂
 		if globalApp.factoryPool.exist(value.Type()) {
-			factoryCall(vi)
+			pool.factoryCall(rt, rtValue, vi)
 			return
 		}
 
